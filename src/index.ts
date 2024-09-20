@@ -1,10 +1,11 @@
+// index.ts
 import '@phala/wapo-env'
 import { Hono } from 'hono/tiny'
 import { handle } from '@phala/wapo-env/guest'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createPublicClient, createWalletClient, http } from 'viem'
 import { gnosisChiado } from 'viem/chains'
-import { SignProtocolClient, SpMode, EvmChains } from "@ethsign/sp-sdk"
+import { SignProtocolClient, SpMode } from "@ethsign/sp-sdk"
 
 export const app = new Hono()
 
@@ -34,7 +35,7 @@ app.post('/create-attestation', async (c) => {
 
   const account = privateKeyToAccount(privateKey as `0x${string}`)
   const client = new SignProtocolClient(SpMode.OnChain, {
-    chain: EvmChains.gnosisChiado,
+    chain: gnosisChiado,
     account: account,
   })
 
