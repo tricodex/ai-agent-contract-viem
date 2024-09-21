@@ -1,3 +1,4 @@
+// src/index.ts
 import '@phala/wapo-env'
 import { Hono } from 'hono/tiny'
 import { handle } from '@phala/wapo-env/guest'
@@ -17,7 +18,7 @@ const AttestationSchema = z.object({
 
 type Vault = {
   privateKey: string;
-  schemaId: string;
+  schemaId?: string;
 }
 
 let vault: Vault | null = null;
@@ -40,12 +41,27 @@ async function initializeVault(): Promise<void> {
       throw new Error('No secrets found in environment')
     }
     vault = JSON.parse(secretEnv) as Vault
-    if (!vault.privateKey || !vault.schemaId) {
-      throw new Error('Private key or schema ID not found in secrets')
+    if (!vault.privateKey) {
+      throw new Error('Private key not found in secrets')
     }
   } catch (e) {
     throw new Error(`Failed to initialize vault: ${e instanceof Error ? e.message : String(e)}`)
   }
+}
+
+async function createSchema(): Promise<string> {
+  if (!vault) throw new Error('Vault not initialized')
+  const client = createSignClient(vault.privateKey)
+  const createSchemaRes = await client.createSchema({
+    name: "JobStatus",
+    data: [
+      { name: "jobCid", type: "string" },
+      { name: "status", type: "string" }
+    ],
+  })
+  vault.schemaId = createSchemaRes.schemaId
+  process.env.secret = JSON.stringify(vault)
+  return createSchemaRes.schemaId
 }
 
 app.get('/', (c) => {
@@ -61,22 +77,36 @@ app.post('/', async (c) => {
     await initializeVault()
     if (!vault) throw new Error('Failed to initialize vault')
 
-    const rawData = await c.req.json()
-    const validatedData = AttestationSchema.parse(rawData)
+    const action = c.req.query('action')
 
-    const client = createSignClient(vault.privateKey)
-    const createAttestationRes: AttestationResult = await client.createAttestation({
-      schemaId: vault.schemaId,
-      data: validatedData,
-      indexingValue: validatedData.jobCid,
-    })
-
-    return c.json({
-      success: true,
-      attestation: {
-        attestationId: createAttestationRes.attestationId,
+    if (action === 'create-schema') {
+      const schemaId = await createSchema()
+      return c.json({ success: true, schemaId })
+    } 
+    else if (action === 'create-attestation') {
+      if (!vault.schemaId) {
+        return c.json({ error: "Schema ID not found. Please create a schema first." }, 400)
       }
-    })
+
+      const rawData = await c.req.json()
+      const validatedData = AttestationSchema.parse(rawData)
+
+      const client = createSignClient(vault.privateKey)
+      const createAttestationRes: AttestationResult = await client.createAttestation({
+        schemaId: vault.schemaId,
+        data: validatedData,
+        indexingValue: validatedData.jobCid,
+      })
+
+      return c.json({
+        success: true,
+        attestation: {
+          attestationId: createAttestationRes.attestationId,
+        }
+      })
+    } else {
+      return c.json({ error: "Invalid action" }, 400)
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       return c.json({ error: "Invalid input data", details: error.errors }, 400)
