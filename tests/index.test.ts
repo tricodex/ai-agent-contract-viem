@@ -1,84 +1,80 @@
 // tests/index.test.ts
 import { afterAll, describe, expect, test, vi } from 'vitest'
-import { app } from '../src/index'
-import 'dotenv/config'
+import { app } from '../src/'
 
-// Mock the environment secrets
-const mockSecrets = JSON.stringify({
-  privateKey: process.env.PRIVATE_KEY || '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+// Mock environment variables
+const mockPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234'
+const mockSchemaId = '0x9876543210987654321098765432109876543210'
+const mockSecret = JSON.stringify({
+  privateKey: mockPrivateKey,
+  schemaId: mockSchemaId
 })
-vi.stubEnv('secret', mockSecrets)
+vi.stubEnv('secret', mockSecret)
 
-// Mock the SignProtocolClient
+// Mock SignProtocolClient
 vi.mock("@ethsign/sp-sdk", () => ({
   SignProtocolClient: vi.fn().mockImplementation(() => ({
-    createAttestation: vi.fn().mockResolvedValue({
-      attestationId: '0x123',
-      transactionHash: '0xabc'
-    })
+    createSchema: vi.fn().mockResolvedValue({ schemaId: mockSchemaId }),
+    createAttestation: vi.fn().mockResolvedValue({ attestationId: '0xabcdef1234567890' }),
   })),
-  SpMode: { OnChain: 'onchain' },
-  EvmChains: { gnosisChiado: {} }
+  SpMode: { OnChain: 'OnChain' },
+  EvmChains: { gnosisChiado: 'gnosisChiado' },
 }))
 
-// Mock viem
-vi.mock('viem', () => ({
-  createPublicClient: vi.fn(),
-  createWalletClient: vi.fn(),
-  http: vi.fn(),
-}))
-vi.mock('viem/chains', () => ({
-  gnosisChiado: {},
-}))
-vi.mock('viem/accounts', () => ({
-  privateKeyToAccount: vi.fn().mockReturnValue({ address: '0x1234' }),
-}))
+describe('Test Viem Sign Agent Contract', () => {
+  test('Root endpoint', async () => {
+    const resp = await app.request('/')
+    expect(resp.status).toBe(200)
+    const data = await resp.json()
+    expect(data).toHaveProperty('message', 'Viem Sign Agent is running')
+    expect(data).toHaveProperty('version', '1.0.0')
+    expect(data).toHaveProperty('network', 'Gnosis Chiado')
+  })
 
-describe('Viem Sign Agent', () => {
+  test('Create Schema', async () => {
+    const resp = await app.request('/create-schema', {
+      method: 'POST',
+    })
+    expect(resp.status).toBe(200)
+    const data = await resp.json()
+    expect(data).toHaveProperty('success', true)
+    expect(data).toHaveProperty('schemaId', mockSchemaId)
+  })
+
   test('Create Attestation', async () => {
     const resp = await app.request('/create-attestation', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        schemaId: '0x1',
-        jobCid: 'QmExample',
-        status: 'completed'
-      })
+        jobCid: 'Qm1234567890abcdef',
+        status: 'completed',
+      }),
     })
-    console.log('Response:', resp.status)
-    const data = await resp.json()
-    console.log('Data:', data)
     expect(resp.status).toBe(200)
+    const data = await resp.json()
     expect(data).toHaveProperty('success', true)
     expect(data).toHaveProperty('attestation')
-    expect(data.attestation).toHaveProperty('attestationId')
-    expect(data.attestation).toHaveProperty('transactionHash')
+    expect(data.attestation).toHaveProperty('attestationId', '0xabcdef1234567890')
   })
 
-  test('Error Handling - Missing Private Key', async () => {
-    vi.stubEnv('secret', '{}')
+  test('Create Attestation with Invalid Data', async () => {
     const resp = await app.request('/create-attestation', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        schemaId: '0x1',
-        jobCid: 'QmExample',
-        status: 'completed'
-      })
+        invalidField: 'invalid data',
+      }),
     })
-    console.log('Response:', resp.status)
+    expect(resp.status).toBe(400)
     const data = await resp.json()
-    console.log('Data:', data)
-    expect(resp.status).toBe(500)
-    expect(data).toHaveProperty('error', 'Private key not found in secrets')
+    expect(data).toHaveProperty('error', 'Invalid input data')
   })
 })
 
 afterAll(() => {
-  vi.unstubAllEnvs()
-  console.log(`\nNow you are ready to publish your agent, add secrets, and interact with your agent in the following steps:\n- Execute: 'npm run publish-agent'\n- Set secrets: 'npm run set-secrets'\n- Go to the url produced by setting the secrets (e.g. https://wapo-testnet.phala.network/ipfs/QmPQJD5zv3cYDRM25uGAVjLvXGNyQf9Vonz7rqkQB52Jae?key=b092532592cbd0cf)`)
+  console.log('\nTests completed. Remember to deploy your agent and set up the schema before using it.')
 })
